@@ -1,0 +1,27 @@
+version: '3'
+
+dotenv: ['.env']
+
+tasks:
+  default:
+    cmds:
+      - task: build
+
+  build:
+    desc: Build the app-deployer binary
+    cmds:
+      - go build -o app-deployer .
+
+  test:
+    desc: Run unit tests
+    cmds:
+      - go test -v -short ./...
+
+  e2e:
+    desc: Run end-to-end tests
+    cmds:
+      - E2E_TEST=true go test  -count=1 -v .
+    # Ensure environment variables are set either via .env or shell
+    preconditions:
+      - sh: '[ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_URL" ]'
+        msg: "GITHUB_TOKEN and GITHUB_URL environment variables are required for E2E tests"
