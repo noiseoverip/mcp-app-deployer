@@ -2,6 +2,9 @@
 
 This walkthrough demonstrates how to use the `app-deployer` to manage Kubernetes applications.
 
+Its simple, you give it a container image name and it will generate required resources and deploy it into your Kubernetes clusters using a GitOps workflow: it pushes an ArgoCD application definition and manifest to a git repository and ArgoCD will pick it up and deploy it into your cluster.
+
+
 ## Prerequisites
 
 - Go 1.23+
