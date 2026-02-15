@@ -1,13 +1,11 @@
-# App Deployer MCP Server
+# MCP server for deploying to Kubernetes
 
-This walkthrough demonstrates how to use the `app-deployer` to manage Kubernetes applications.
-
-Its simple, you give it a container image name and it will generate required resources and deploy it into your Kubernetes clusters using a GitOps workflow: it pushes an ArgoCD application definition and manifest to a git repository and ArgoCD will pick it up and deploy it into your cluster.
+I use this for my home lab setup to improve agenting development loop with real deployment and testing.
+Give it app name and container image name and it will generate Kubernetes manifests and push them to git, additional action let agent check status, restart with latest image and destroy everything.
 
 
 ## Prerequisites
 
-- Go 1.23+
 - A Kubernetes cluster (and `kubeconfig`)
 - A GitHub repository for GitOps
 - ArgoCD installed on the cluster
