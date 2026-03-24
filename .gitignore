@@ -1,2 +1,4 @@
 .env
-mcp-deployer
+mcp-deployer.DS_STORE
+.DS_Store
+mcp-app-deployer

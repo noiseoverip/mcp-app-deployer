@@ -4,9 +4,9 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"html/template"
 	"os"
 	"path/filepath"
+	"text/template"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -56,14 +56,7 @@ func deploy(ctx context.Context, appName, image string) (*mcp.CallToolResult, er
 	}
 
 	// 3. Render templates
-	data := struct {
-		Name         string
-		Image        string
-		Namespace    string
-		Domain       string
-		RepoURL      string
-		ManifestPath string
-	}{
+	data := ImageManifestData{
 		Name:         appName,
 		Image:        image,
 		Namespace:    namespace,
@@ -95,25 +88,18 @@ func deploy(ctx context.Context, appName, image string) (*mcp.CallToolResult, er
 		}
 	}
 
-	// Render ArgoCD Application
-	tmpl, err := template.ParseFS(templatesFS, "templates/application.yaml")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse application template: %v", err)), nil
+	argoData := ArgoApplicationData{
+		Name:      appName,
+		Namespace: namespace,
+		Git: &ArgoGitSource{
+			RepoURL:        githubURL,
+			TargetRevision: "HEAD",
+			Path:           filepath.ToSlash(filepath.Join(manifestPath, appName)),
+		},
 	}
 
-	argoAppFile := filepath.Join(argocdPath, appName+".yaml")
-	f, err := os.Create(argoAppFile)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to create argo app file: %v", err)), nil
-	}
-	defer f.Close()
-
-	if err := tmpl.Execute(f, data); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to execute application template: %v", err)), nil
-	}
-
-	if _, err := w.Add(filepath.Join(argocdAppPath, appName+".yaml")); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to git add argo app: %v", err)), nil
+	if err := writeArgoApplication(tempDir, w, argocdPath, "templates/application.yaml", argoData); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to render argo app: %v", err)), nil
 	}
 
 	// 4. Commit and Push
@@ -143,4 +129,33 @@ func deploy(ctx context.Context, appName, image string) (*mcp.CallToolResult, er
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully deployed %s. Git updated.", appName)), nil
+}
+
+func writeArgoApplication(tempDir string, w *git.Worktree, argocdPath string, templatePath string, data ArgoApplicationData) error {
+	tmpl, err := template.ParseFS(templatesFS, templatePath)
+	if err != nil {
+		return fmt.Errorf("parse application template: %w", err)
+	}
+
+	argoAppFile := filepath.Join(argocdPath, data.Name+".yaml")
+	f, err := os.Create(argoAppFile)
+	if err != nil {
+		return fmt.Errorf("create argo app file: %w", err)
+	}
+	defer f.Close()
+
+	if err := tmpl.Execute(f, data); err != nil {
+		return fmt.Errorf("execute application template: %w", err)
+	}
+
+	relativeAppFile, err := filepath.Rel(tempDir, argoAppFile)
+	if err != nil {
+		return fmt.Errorf("compute argo app path: %w", err)
+	}
+
+	if _, err := w.Add(filepath.ToSlash(relativeAppFile)); err != nil {
+		return fmt.Errorf("git add argo app: %w", err)
+	}
+
+	return nil
 }

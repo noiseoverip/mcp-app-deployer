@@ -47,11 +47,17 @@ func main() {
 	)
 
 	// Register tools
-	s.AddTool(mcp.NewTool("deploy",
-		mcp.WithDescription("Deploy a new application"),
+	s.AddTool(mcp.NewTool("deploy-image",
+		mcp.WithDescription("Deploy a new application from a container image"),
 		mcp.WithString("app_name", mcp.Required(), mcp.Description("Name of the application")),
 		mcp.WithString("image", mcp.Required(), mcp.Description("Container image to deploy")),
 	), deployHandler)
+
+	s.AddTool(mcp.NewTool("deploy-helmchart",
+		mcp.WithDescription("Deploy a new application from an OCI Helm chart"),
+		mcp.WithString("app_name", mcp.Required(), mcp.Description("Name of the application")),
+		mcp.WithString("chart", mcp.Required(), mcp.Description("Full OCI Helm chart reference including version, for example oci://registry-1.docker.io/bitnamicharts/nginx:15.9.0")),
+	), deployHelmChartHandler)
 
 	s.AddTool(mcp.NewTool("destroy",
 		mcp.WithDescription("Destroy an existing application"),
@@ -90,6 +96,24 @@ func deployHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 	}
 
 	return deploy(ctx, appName, image)
+}
+
+func deployHelmChartHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args, ok := request.Params.Arguments.(map[string]interface{})
+	if !ok {
+		return mcp.NewToolResultError("arguments must be a map"), nil
+	}
+
+	appName, ok := args["app_name"].(string)
+	if !ok {
+		return mcp.NewToolResultError("app_name must be a string"), nil
+	}
+	chartRef, ok := args["chart"].(string)
+	if !ok {
+		return mcp.NewToolResultError("chart must be a string"), nil
+	}
+
+	return deployHelmChart(ctx, appName, chartRef)
 }
 
 func destroyHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

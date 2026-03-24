@@ -6,9 +6,11 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: {{ .Git.RepoURL }}
-    targetRevision: {{ .Git.TargetRevision }}
-    path: {{ .Git.Path }}
+    chart: {{ .Helm.Chart }}
+    repoURL: {{ .Helm.RepoURL }}
+    targetRevision: {{ .Helm.TargetRevision }}
+    helm:
+      releaseName: {{ .Helm.ReleaseName }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Namespace }}

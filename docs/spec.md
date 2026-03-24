@@ -11,11 +11,12 @@ The server configuration would have:
 - [argocd-app-path] path within github url to store argocd application definitions
 - [manifest-path] path within github url to store kubernetes manifest of the application
 Actions that it would support:
-- `deploy` with args: app-name, container-image
+- `deploy-image` with args: app-name, container-image
+- `deploy-helmchart` with args: app-name, oci-helm-chart
 - `destroy` with args: app-name
 - `status` with args: app-name
 
-## Action:`deploy` 
+## Action:`deploy-image` 
 
 This action would generate the following Kubernetes resources:
 - Deployment with single replica, no requests/limits for now. 
@@ -29,6 +30,17 @@ Resources should be generated from golang templates so that it is easy to extend
 It would then:
 - Git Push generate ArgoCD application to [github-url]/[argocd-app-path]/[app-name].yaml
 - Git Push generated manifests to [manifest-path]/[app-name]/*
+
+## Action:`deploy-helmchart`
+
+args:
+- app-name
+- oci-helm-chart
+
+This action should:
+- Accept a full OCI Helm chart reference including version, for example `oci://registry-1.docker.io/bitnamicharts/nginx:15.9.0`
+- Generate an ArgoCD application manifest that points at the OCI Helm chart
+- Git Push the generated ArgoCD application to [github-url]/[argocd-app-path]/[app-name].yaml
 
 Then:
 - Wait for expected ArgoCD application to appear in Kubernetes cluster and ArgoCD to report it is in-sync and healthy.

@@ -33,3 +33,32 @@ type ArgoAppConfig struct {
 	RepoURL      string
 	ManifestPath string
 }
+
+type ImageManifestData struct {
+	Name         string
+	Image        string
+	Namespace    string
+	Domain       string
+	RepoURL      string
+	ManifestPath string
+}
+
+type ArgoApplicationData struct {
+	Name      string
+	Namespace string
+	Git       *ArgoGitSource
+	Helm      *ArgoHelmSource
+}
+
+type ArgoGitSource struct {
+	RepoURL        string
+	TargetRevision string
+	Path           string
+}
+
+type ArgoHelmSource struct {
+	RepoURL        string
+	Chart          string
+	TargetRevision string
+	ReleaseName    string
+}

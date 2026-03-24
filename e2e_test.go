@@ -66,10 +66,10 @@ func TestE2E(t *testing.T) {
 	image := "sauliusalisauskas/testappgo:latest"
 
 	// 4. Test Deploy
-	t.Log("Testing Deploy...")
+	t.Log("Testing Deploy Image...")
 	deployRes, err := cli.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "deploy",
+			Name: "deploy-image",
 			Arguments: map[string]interface{}{
 				"app_name": appName,
 				"image":    image,
@@ -79,7 +79,7 @@ func TestE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Deploy failed: %v", err)
 	}
-	printResult(t, "Deploy", deployRes)
+	printResult(t, "Deploy Image", deployRes)
 	if deployRes.IsError {
 		t.Fatalf("Deploy returned error")
 	}
