@@ -39,7 +39,9 @@ args:
 
 This action should:
 - Accept a full OCI Helm chart reference including version, for example `oci://registry-1.docker.io/bitnamicharts/nginx:15.9.0`
-- Generate an ArgoCD application manifest that points at the OCI Helm chart
+- Generate an ArgoCD application manifest that points at the OCI Helm chart and overrides ingress:
+  - ingress.name: [app-name]
+  - ingress.host: [app-name].[domain]
 - Git Push the generated ArgoCD application to [github-url]/[argocd-app-path]/[app-name].yaml
 
 Then:

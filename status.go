@@ -11,6 +11,7 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/mark3labs/mcp-go/mcp"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -43,12 +44,12 @@ func status(ctx context.Context, appName string) (*mcp.CallToolResult, error) {
 	}
 
 	// 3. Check Ingress Reachability
-	ingressURL := fmt.Sprintf("http://%s.%s", appName, domain)
-	reachable := checkReachability(ingressURL)
+	host := fmt.Sprintf("%s.%s", appName, domain)
+	ingressURL, reachable := firstReachableIngressURL(host)
 	if reachable {
 		result = append(result, fmt.Sprintf("✅ Ingress reachable: %s", ingressURL))
 	} else {
-		result = append(result, fmt.Sprintf("❌ Ingress unreachable: %s", ingressURL))
+		result = append(result, fmt.Sprintf("❌ Ingress unreachable: %s", host))
 	}
 
 	return mcp.NewToolResultText(strings.Join(result, "\n")), nil
@@ -93,39 +94,80 @@ func checkGitStatus(appName string) (bool, error) {
 }
 
 func checkArgoStatus(ctx context.Context, appName string) (string, error) {
+	dynClient, err := newDynamicClient()
+	if err != nil {
+		return "", err
+	}
+
+	app, err := getArgoApplication(ctx, dynClient, appName)
+	if err != nil {
+		return fmt.Sprintf("❌ ArgoCD Application not found: %v", err), nil
+	}
+
+	healthStatus, found, _ := unstructured.NestedString(app.Object, "status", "health", "status")
+	if found {
+		syncStatus, _, _ := unstructured.NestedString(app.Object, "status", "sync", "status")
+		return fmt.Sprintf("✅ ArgoCD App found. Health: %s, Sync: %s", healthStatus, syncStatus), nil
+	}
+
+	return "⚠️ ArgoCD App found but status unknown", nil
+}
+
+func newDynamicClient() (dynamic.Interface, error) {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	dynClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		return "", err
-	}
+	return dynamic.NewForConfig(config)
+}
 
-	// Define ArgoCD Application GVR
+func getArgoApplication(ctx context.Context, dynClient dynamic.Interface, appName string) (*unstructured.Unstructured, error) {
 	gvr := schema.GroupVersionResource{
 		Group:    "argoproj.io",
 		Version:  "v1alpha1",
 		Resource: "applications",
 	}
 
-	// Assuming ArgoCD is in 'argocd' namespace.
-	// In a real implementation we might want this configurable.
-	app, err := dynClient.Resource(gvr).Namespace("argocd").Get(ctx, appName, metav1.GetOptions{})
+	return dynClient.Resource(gvr).Namespace("argocd").Get(ctx, appName, metav1.GetOptions{})
+}
+
+func waitForArgoApplicationHealthy(ctx context.Context, appName string, timeout, interval time.Duration) error {
+	dynClient, err := newDynamicClient()
 	if err != nil {
-		return fmt.Sprintf("❌ ArgoCD Application not found: %v", err), nil
+		return err
 	}
 
-	// Parse status
-	// Status is unstructured, simplified check
-	status, found, _ := unstructured.NestedString(app.Object, "status", "health", "status")
-	if found {
-		syncStatus, _, _ := unstructured.NestedString(app.Object, "status", "sync", "status")
-		return fmt.Sprintf("✅ ArgoCD App found. Health: %s, Sync: %s", status, syncStatus), nil
-	}
+	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	return "⚠️ ArgoCD App found but status unknown", nil
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var lastState string
+
+	for {
+		app, err := getArgoApplication(deadlineCtx, dynClient, appName)
+		switch {
+		case err == nil:
+			healthStatus, _, _ := unstructured.NestedString(app.Object, "status", "health", "status")
+			syncStatus, _, _ := unstructured.NestedString(app.Object, "status", "sync", "status")
+			lastState = fmt.Sprintf("health=%s sync=%s", healthStatus, syncStatus)
+			if healthStatus == "Healthy" && syncStatus == "Synced" {
+				return nil
+			}
+		case apierrors.IsNotFound(err):
+			lastState = "application not found"
+		default:
+			lastState = err.Error()
+		}
+
+		select {
+		case <-deadlineCtx.Done():
+			return fmt.Errorf("timed out waiting for ArgoCD application %s to become healthy and synced: %s", appName, lastState)
+		case <-ticker.C:
+		}
+	}
 }
 
 func checkReachability(url string) bool {
@@ -138,4 +180,35 @@ func checkReachability(url string) bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode >= 200 && resp.StatusCode < 400
+}
+
+func firstReachableIngressURL(host string) (string, bool) {
+	for _, scheme := range []string{"https://", "http://"} {
+		url := scheme + host
+		if checkReachability(url) {
+			return url, true
+		}
+	}
+
+	return "https://" + host, false
+}
+
+func waitForIngressReachability(ctx context.Context, host string, timeout, interval time.Duration) error {
+	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		if _, ok := firstReachableIngressURL(host); ok {
+			return nil
+		}
+
+		select {
+		case <-deadlineCtx.Done():
+			return fmt.Errorf("timed out waiting for ingress host %s to become reachable", host)
+		case <-ticker.C:
+		}
+	}
 }

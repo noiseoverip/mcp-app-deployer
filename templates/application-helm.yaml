@@ -11,6 +11,11 @@ spec:
     targetRevision: {{ .Helm.TargetRevision }}
     helm:
       releaseName: {{ .Helm.ReleaseName }}
+      parameters:
+        - name: ingress.name
+          value: {{ printf "%q" .Helm.IngressName }}
+        - name: ingress.host
+          value: {{ printf "%q" .Helm.IngressHost }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Namespace }}

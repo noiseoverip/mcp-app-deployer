@@ -72,6 +72,8 @@ func TestApplicationTemplateWithHelmSource(t *testing.T) {
 			Chart:          "nginx",
 			TargetRevision: "15.9.0",
 			ReleaseName:    "demo-app",
+			IngressName:    "demo-app",
+			IngressHost:    "demo-app.example.com",
 		},
 	}
 
@@ -86,6 +88,10 @@ func TestApplicationTemplateWithHelmSource(t *testing.T) {
 		"repoURL: registry-1.docker.io/bitnamicharts",
 		"targetRevision: 15.9.0",
 		"releaseName: demo-app",
+		"name: ingress.name",
+		"value: \"demo-app\"",
+		"name: ingress.host",
+		"value: \"demo-app.example.com\"",
 	}
 
 	for _, check := range checks {

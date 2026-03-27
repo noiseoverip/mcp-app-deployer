@@ -61,4 +61,6 @@ type ArgoHelmSource struct {
 	Chart          string
 	TargetRevision string
 	ReleaseName    string
+	IngressName    string
+	IngressHost    string
 }

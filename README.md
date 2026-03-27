@@ -74,6 +74,9 @@ Use the `deploy-helmchart` tool to create an ArgoCD application that installs an
 
 This will:
 - Create an ArgoCD Application in Git that points to the OCI chart.
+- Override these Helm values in the generated ArgoCD Application:
+  - `ingress.name` = `app_name`
+  - `ingress.host` = `app_name`.`domain`
 - Push changes to the repository. ArgoCD should then sync the app.
 
 Notes:

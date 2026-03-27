@@ -15,12 +15,12 @@ import (
 )
 
 func deployHelmChart(ctx context.Context, appName, chartRef string) (*mcp.CallToolResult, error) {
-	_ = ctx
-
 	chartSource, err := parseOCIHelmChartRef(chartRef)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid OCI chart reference: %v", err)), nil
 	}
+
+	host := fmt.Sprintf("%s.%s", appName, domain)
 
 	tempDir, err := os.MkdirTemp("", "mcp-helm-deployer-")
 	if err != nil {
@@ -59,6 +59,8 @@ func deployHelmChart(ctx context.Context, appName, chartRef string) (*mcp.CallTo
 			Chart:          chartSource.Chart,
 			TargetRevision: chartSource.TargetRevision,
 			ReleaseName:    appName,
+			IngressName:    appName,
+			IngressHost:    host,
 		},
 	}
 
@@ -91,7 +93,15 @@ func deployHelmChart(ctx context.Context, appName, chartRef string) (*mcp.CallTo
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to push changes: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully deployed %s from Helm chart %s. Git updated.", appName, chartRef)), nil
+	if err := waitForArgoApplicationHealthy(ctx, appName, 3*time.Minute, 5*time.Second); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Git updated but ArgoCD did not become ready: %v", err)), nil
+	}
+
+	if err := waitForIngressReachability(ctx, host, 2*time.Minute, 5*time.Second); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("ArgoCD synced %s but ingress did not become reachable: %v", appName, err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully deployed %s from Helm chart %s. ArgoCD is synced and %s is reachable.", appName, chartRef, host)), nil
 }
 
 func parseOCIHelmChartRef(chartRef string) (*ArgoHelmSource, error) {
