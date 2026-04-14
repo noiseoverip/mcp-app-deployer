@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -22,10 +23,25 @@ func update(ctx context.Context, appName string) (*mcp.CallToolResult, error) {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to create Kubernetes client: %v", err)), nil
 	}
 
-	// Get the current deployment
-	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, appName, metav1.GetOptions{})
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get deployment %s: %v", appName, err)), nil
+	// Get the current deployment. Search public namespace first, then local.
+	candidates := []string{namespace, localNamespace}
+	var deploy *appsv1.Deployment
+	var foundNs string
+	var lastErr error
+	for _, ns := range candidates {
+		if ns == "" {
+			continue
+		}
+		d, err := clientset.AppsV1().Deployments(ns).Get(ctx, appName, metav1.GetOptions{})
+		if err == nil {
+			deploy = d
+			foundNs = ns
+			break
+		}
+		lastErr = err
+	}
+	if deploy == nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to get deployment %s: %v", appName, lastErr)), nil
 	}
 
 	// Patch the pod template annotation to trigger a rolling restart
@@ -35,10 +51,10 @@ func update(ctx context.Context, appName string) (*mcp.CallToolResult, error) {
 	}
 	deploy.Spec.Template.ObjectMeta.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
 
-	_, err = clientset.AppsV1().Deployments(namespace).Update(ctx, deploy, metav1.UpdateOptions{})
+	_, err = clientset.AppsV1().Deployments(foundNs).Update(ctx, deploy, metav1.UpdateOptions{})
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to update deployment %s: %v", appName, err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully triggered rolling restart for deployment %s in namespace %s", appName, namespace)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully triggered rolling restart for deployment %s in namespace %s", appName, foundNs)), nil
 }
