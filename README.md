@@ -47,6 +47,54 @@ Add the server to your MCP client configuration (e.g., `claude_desktop_config.js
 }
 ```
 
+### HTTP transport (Streamable HTTP)
+
+By default the server runs over stdio. To expose it over HTTP instead, pass `--http` and a password:
+
+```bash
+./app-deployer \
+  --kubeconfig /path/to/kubeconfig \
+  --github-token YOUR_GITHUB_TOKEN \
+  --github-url https://github.com/your/repo \
+  --http :8080 \
+  --http-password "$MCP_HTTP_PASSWORD" \
+  --http-path /mcp
+```
+
+Flags:
+- `--http <addr>`: listen address (e.g. `:8080`). Omit to use stdio.
+- `--http-password <token>`: bearer token required on every request. May also be supplied via the `MCP_HTTP_PASSWORD` env var.
+- `--http-path <path>`: URL path for the MCP endpoint (defaults to `/mcp`).
+
+Clients must send the password as `Authorization: Bearer <token>` (or `X-MCP-Password: <token>`). Unauthorized requests get `401`.
+
+#### Configure Claude Code to use the HTTP server
+
+Add it via the `claude mcp` CLI:
+
+```bash
+claude mcp add --transport http app-deployer https://your-host:8080/mcp \
+  --header "Authorization: Bearer $MCP_HTTP_PASSWORD"
+```
+
+Or add it directly to `~/.claude.json` (or `.mcp.json` in your project) under `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "app-deployer": {
+      "type": "http",
+      "url": "https://your-host:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_PASSWORD"
+      }
+    }
+  }
+}
+```
+
+For local-only use, point the URL at `http://127.0.0.1:8080/mcp`. For anything reachable over the network, terminate TLS in front of the server (e.g. behind an ingress) — the bearer token is sent on every request.
+
 ## Usage
 
 ### 1. Deploy an Application From an Image

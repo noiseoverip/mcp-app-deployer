@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 
@@ -22,6 +24,9 @@ var (
 	githubToken         string
 	argocdAppPath       string
 	manifestPath        string
+	httpAddr            string
+	httpPassword        string
+	httpEndpointPath    string
 )
 
 const (
@@ -73,7 +78,14 @@ func main() {
 	flag.StringVar(&githubToken, "github-token", "", "GitHub Personal Access Token")
 	flag.StringVar(&argocdAppPath, "argocd-path", "argocd-apps", "Path in repo for ArgoCD apps")
 	flag.StringVar(&manifestPath, "manifest-path", "manifests", "Path in repo for Kubernetes manifests")
+	flag.StringVar(&httpAddr, "http", "", "If set (e.g. \":8080\"), serve MCP over Streamable HTTP on this address instead of stdio")
+	flag.StringVar(&httpPassword, "http-password", "", "Bearer token required to access the HTTP endpoint (required when --http is set; falls back to MCP_HTTP_PASSWORD env var)")
+	flag.StringVar(&httpEndpointPath, "http-path", "/mcp", "URL path for the MCP HTTP endpoint")
 	flag.Parse()
+
+	if httpAddr != "" && httpPassword == "" {
+		httpPassword = os.Getenv("MCP_HTTP_PASSWORD")
+	}
 
 	// Validate required flags
 	if kubeconfigPath == "" || githubURL == "" || githubToken == "" {
@@ -119,10 +131,49 @@ func main() {
 		mcp.WithString("app_name", mcp.Required(), mcp.Description("Name of the application")),
 	), updateHandler)
 
+	if httpAddr != "" {
+		if httpPassword == "" {
+			fmt.Println("Error: --http-password (or MCP_HTTP_PASSWORD) is required when --http is set")
+			os.Exit(1)
+		}
+		httpServer := server.NewStreamableHTTPServer(s,
+			server.WithEndpointPath(httpEndpointPath),
+		)
+		mux := http.NewServeMux()
+		mux.Handle(httpEndpointPath, authMiddleware(httpPassword, httpServer))
+		srv := &http.Server{Addr: httpAddr, Handler: mux}
+		log.Printf("MCP HTTP server listening on %s%s", httpAddr, httpEndpointPath)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v\n", err)
+		}
+		return
+	}
+
 	// Start server on stdio
 	if err := server.ServeStdio(s); err != nil {
 		log.Printf("Server error: %v\n", err)
 	}
+}
+
+func authMiddleware(password string, next http.Handler) http.Handler {
+	expected := []byte(password)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var provided string
+		if h := r.Header.Get("Authorization"); h != "" {
+			if strings.HasPrefix(h, "Bearer ") {
+				provided = strings.TrimPrefix(h, "Bearer ")
+			}
+		}
+		if provided == "" {
+			provided = r.Header.Get("X-MCP-Password")
+		}
+		if subtle.ConstantTimeCompare([]byte(provided), expected) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="mcp"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func deployHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
