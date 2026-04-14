@@ -2,3 +2,5 @@
 mcp-deployer.DS_STORE
 .DS_Store
 mcp-app-deployer
+.idea
+app-deployer

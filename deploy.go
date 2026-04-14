@@ -18,7 +18,7 @@ import (
 //go:embed templates/*
 var templatesFS embed.FS
 
-func deploy(ctx context.Context, appName, image string) (*mcp.CallToolResult, error) {
+func deploy(ctx context.Context, appName, image, exposure, targetNamespace string) (*mcp.CallToolResult, error) {
 	// 1. Clone the repository
 	tempDir, err := os.MkdirTemp("", "mcp-deployer-")
 	if err != nil {
@@ -59,7 +59,7 @@ func deploy(ctx context.Context, appName, image string) (*mcp.CallToolResult, er
 	data := ImageManifestData{
 		Name:         appName,
 		Image:        image,
-		Namespace:    namespace,
+		Namespace:    targetNamespace,
 		Domain:       domain,
 		RepoURL:      githubURL,
 		ManifestPath: manifestPath,
@@ -90,7 +90,7 @@ func deploy(ctx context.Context, appName, image string) (*mcp.CallToolResult, er
 
 	argoData := ArgoApplicationData{
 		Name:      appName,
-		Namespace: namespace,
+		Namespace: targetNamespace,
 		Git: &ArgoGitSource{
 			RepoURL:        githubURL,
 			TargetRevision: "HEAD",
@@ -100,6 +100,12 @@ func deploy(ctx context.Context, appName, image string) (*mcp.CallToolResult, er
 
 	if err := writeArgoApplication(tempDir, w, argocdPath, "templates/application.yaml", argoData); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to render argo app: %v", err)), nil
+	}
+
+	if exposure == exposureLocal {
+		if err := ensureLocalNamespaceNetworkPolicy(tempDir, w, targetNamespace); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to render local network policy: %v", err)), nil
+		}
 	}
 
 	// 4. Commit and Push
@@ -129,6 +135,62 @@ func deploy(ctx context.Context, appName, image string) (*mcp.CallToolResult, er
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully deployed %s. Git updated.", appName)), nil
+}
+
+// ensureLocalNamespaceNetworkPolicy writes a NetworkPolicy manifest and an
+// ArgoCD Application that deploys it into the local namespace, restricting
+// ingress to the configured subnets. The files are idempotent: rewriting them
+// with the same content produces no git diff.
+func ensureLocalNamespaceNetworkPolicy(tempDir string, w *git.Worktree, localNs string) error {
+	subnets := allowedSubnets()
+	if len(subnets) == 0 {
+		return fmt.Errorf("--local-allowed-subnets must be set to deploy applications with exposure=local")
+	}
+
+	bootstrapName := "local-namespace-network-policy"
+	npDir := filepath.Join(manifestPath, bootstrapName)
+	npDirAbs := filepath.Join(tempDir, npDir)
+	if err := os.MkdirAll(npDirAbs, 0755); err != nil {
+		return fmt.Errorf("create network policy dir: %w", err)
+	}
+
+	tmpl, err := template.ParseFS(templatesFS, "templates/networkpolicy.yaml")
+	if err != nil {
+		return fmt.Errorf("parse networkpolicy template: %w", err)
+	}
+
+	npFile := filepath.Join(npDirAbs, "networkpolicy.yaml")
+	f, err := os.Create(npFile)
+	if err != nil {
+		return fmt.Errorf("create networkpolicy file: %w", err)
+	}
+	defer f.Close()
+
+	npData := struct {
+		Namespace      string
+		AllowedSubnets []string
+	}{Namespace: localNs, AllowedSubnets: subnets}
+
+	if err := tmpl.Execute(f, npData); err != nil {
+		return fmt.Errorf("execute networkpolicy template: %w", err)
+	}
+
+	if _, err := w.Add(filepath.ToSlash(filepath.Join(npDir, "networkpolicy.yaml"))); err != nil {
+		return fmt.Errorf("git add networkpolicy: %w", err)
+	}
+
+	argoData := ArgoApplicationData{
+		Name:      bootstrapName,
+		Namespace: localNs,
+		Git: &ArgoGitSource{
+			RepoURL:        githubURL,
+			TargetRevision: "HEAD",
+			Path:           filepath.ToSlash(npDir),
+		},
+	}
+
+	argocdPath := filepath.Join(tempDir, argocdAppPath)
+	return writeArgoApplication(tempDir, w, argocdPath, "templates/application.yaml", argoData)
 }
 
 func writeArgoApplication(tempDir string, w *git.Worktree, argocdPath string, templatePath string, data ArgoApplicationData) error {

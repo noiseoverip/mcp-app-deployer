@@ -14,7 +14,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-func deployHelmChart(ctx context.Context, appName, chartRef string) (*mcp.CallToolResult, error) {
+func deployHelmChart(ctx context.Context, appName, chartRef, exposure, targetNamespace string) (*mcp.CallToolResult, error) {
 	chartSource, err := parseOCIHelmChartRef(chartRef)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid OCI chart reference: %v", err)), nil
@@ -53,7 +53,7 @@ func deployHelmChart(ctx context.Context, appName, chartRef string) (*mcp.CallTo
 
 	argoData := ArgoApplicationData{
 		Name:      appName,
-		Namespace: namespace,
+		Namespace: targetNamespace,
 		Helm: &ArgoHelmSource{
 			RepoURL:        chartSource.RepoURL,
 			Chart:          chartSource.Chart,
@@ -66,6 +66,12 @@ func deployHelmChart(ctx context.Context, appName, chartRef string) (*mcp.CallTo
 
 	if err := writeArgoApplication(tempDir, w, argocdPath, "templates/application-helm.yaml", argoData); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to render argo app: %v", err)), nil
+	}
+
+	if exposure == exposureLocal {
+		if err := ensureLocalNamespaceNetworkPolicy(tempDir, w, targetNamespace); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to render local network policy: %v", err)), nil
+		}
 	}
 
 	status, err := w.Status()

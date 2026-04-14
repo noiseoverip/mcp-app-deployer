@@ -6,25 +6,68 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
 var (
-	kubeconfigPath string
-	namespace      string
-	domain         string
-	githubURL      string
-	githubToken    string
-	argocdAppPath  string
-	manifestPath   string
+	kubeconfigPath      string
+	namespace           string
+	localNamespace      string
+	localAllowedSubnets string
+	domain              string
+	githubURL           string
+	githubToken         string
+	argocdAppPath       string
+	manifestPath        string
 )
+
+const (
+	exposurePublic = "public"
+	exposureLocal  = "local"
+)
+
+func resolveExposure(args map[string]interface{}) (string, string, error) {
+	raw, ok := args["exposure"]
+	if !ok || raw == nil {
+		return exposurePublic, namespace, nil
+	}
+	str, ok := raw.(string)
+	if !ok {
+		return "", "", fmt.Errorf("exposure must be a string")
+	}
+	switch str {
+	case "", exposurePublic:
+		return exposurePublic, namespace, nil
+	case exposureLocal:
+		return exposureLocal, localNamespace, nil
+	default:
+		return "", "", fmt.Errorf("exposure must be %q or %q", exposurePublic, exposureLocal)
+	}
+}
+
+func allowedSubnets() []string {
+	if strings.TrimSpace(localAllowedSubnets) == "" {
+		return nil
+	}
+	parts := strings.Split(localAllowedSubnets, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 func main() {
 	// Parse command line flags
 	flag.StringVar(&kubeconfigPath, "kubeconfig", "", "Path to kubeconfig file")
-	flag.StringVar(&namespace, "namespace", "applications", "Kubernetes namespace")
+	flag.StringVar(&namespace, "namespace", "applications", "Kubernetes namespace for public applications")
+	flag.StringVar(&localNamespace, "local-namespace", "applications-local", "Kubernetes namespace for local applications")
+	flag.StringVar(&localAllowedSubnets, "local-allowed-subnets", "", "Comma-separated list of CIDR subnets permitted to reach local applications")
 	flag.StringVar(&domain, "domain", "tykus.net", "Base domain for ingress")
 	flag.StringVar(&githubURL, "github-url", "", "GitHub URL (e.g., https://github.com/user/repo)")
 	flag.StringVar(&githubToken, "github-token", "", "GitHub Personal Access Token")
@@ -51,12 +94,14 @@ func main() {
 		mcp.WithDescription("Deploy a new application from a container image"),
 		mcp.WithString("app_name", mcp.Required(), mcp.Description("Name of the application")),
 		mcp.WithString("image", mcp.Required(), mcp.Description("Container image to deploy")),
+		mcp.WithString("exposure", mcp.Description("Exposure mode: \"public\" (default) exposes the app to the public internet; \"local\" restricts it to configured local subnets")),
 	), deployHandler)
 
 	s.AddTool(mcp.NewTool("deploy-helmchart",
 		mcp.WithDescription("Deploy a new application from an OCI Helm chart"),
 		mcp.WithString("app_name", mcp.Required(), mcp.Description("Name of the application")),
 		mcp.WithString("chart", mcp.Required(), mcp.Description("Full OCI Helm chart reference including version, for example oci://registry-1.docker.io/bitnamicharts/nginx:15.9.0")),
+		mcp.WithString("exposure", mcp.Description("Exposure mode: \"public\" (default) exposes the app to the public internet; \"local\" restricts it to configured local subnets")),
 	), deployHelmChartHandler)
 
 	s.AddTool(mcp.NewTool("destroy",
@@ -95,7 +140,12 @@ func deployHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError("image must be a string"), nil
 	}
 
-	return deploy(ctx, appName, image)
+	exposure, targetNamespace, err := resolveExposure(args)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	return deploy(ctx, appName, image, exposure, targetNamespace)
 }
 
 func deployHelmChartHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -113,7 +163,12 @@ func deployHelmChartHandler(ctx context.Context, request mcp.CallToolRequest) (*
 		return mcp.NewToolResultError("chart must be a string"), nil
 	}
 
-	return deployHelmChart(ctx, appName, chartRef)
+	exposure, targetNamespace, err := resolveExposure(args)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	return deployHelmChart(ctx, appName, chartRef, exposure, targetNamespace)
 }
 
 func destroyHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
