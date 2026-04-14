@@ -19,12 +19,12 @@ Actions that it would support:
 ## Action:`deploy-image` 
 
 This action would generate the following Kubernetes resources:
-- Deployment with single replica, no requests/limits for now. 
+- Deployment with a single replica, no requests/limits for now. 
 	- It should have health check checking port 8080
 - Service
 	- It should expose service on port 80.
 - Ingress wired to the service above.
-- ArgoCD application manifest pointing it to install from [github-url]/[manifest-path]/[app-name]. It should be enabled for autosync.
+- ArgoCD application manifest is pointing it to install from [github-url]/[manifest-path]/[app-name]. It should be enabled for autosync.
 Resources should be generated from golang templates so that it is easy to extend later on.
 
 It would then:
@@ -38,15 +38,15 @@ args:
 - oci-helm-chart
 
 This action should:
-- Accept a full OCI Helm chart reference including version, for example `oci://registry-1.docker.io/bitnamicharts/nginx:15.9.0`
+- Accept a full OCI Helm chart reference including a version, for example `oci://registry-1.docker.io/bitnamicharts/nginx:15.9.0`
 - Generate an ArgoCD application manifest that points at the OCI Helm chart and overrides ingress:
   - ingress.name: [app-name]
   - ingress.host: [app-name].[domain]
 - Git Push the generated ArgoCD application to [github-url]/[argocd-app-path]/[app-name].yaml
 
 Then:
-- Wait for expected ArgoCD application to appear in Kubernetes cluster and ArgoCD to report it is in-sync and healthy.
-- Check host configured in ingress is publicly reachable.
+- Wait for the expected ArgoCD application to appear in the Kubernetes cluster and ArgoCD to report it is in-sync and healthy.
+- Check the host configured in ingress is publicly reachable.
 
 
 ## Action: destroy
@@ -55,7 +55,7 @@ args:
 
 This action should:
 - Push a git change removing both ArgoCD application ([argocd-app-path]/[app-name].yaml) and Kubernetes manifests ([manifest-path]/[app-name]/)
-- Wait for ArgoCD application to not be present in Kubernetes cluster.
+- Wait for the ArgoCD application to not be present in Kubernetes cluster.
 
 ## Action: status
 args: 
@@ -63,6 +63,6 @@ args:
 
 This action should:
 - Report status of Kubernetes manifests in github related to this file. Are file present ?
-- Report status of expected ArgoCD application in Github. Does it exist ?
-- Report status of ArgoCD application responsible for deployment the app.
-- Report is hostname defined in applications ingress is reachable from public internet.
+- Report the status of an expected ArgoCD application in Github. Does it exist ?
+- Report the status of the ArgoCD application responsible for deployment of the app.
+- Report is the hostname defined in applications ingress is reachable from the public internet.

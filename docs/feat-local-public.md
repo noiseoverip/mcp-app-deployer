@@ -5,7 +5,6 @@ Publicly - app is exposed to the public internet.
 # Public
 Public application are deployed to namespace "applications" by default and not network policy is applied.
 
-
 # Local
 Local applications are designed to be access only from a local network.
 To achieve this, they are deployed to a separate namespace (defaults to "applications-local"), and a network policy is
